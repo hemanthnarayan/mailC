@@ -50,7 +50,7 @@ VESP513WDG+/8K45u0gWwdZfvVDpU4LAJkO+djNXCN4=
 -----END RSA PRIVATE KEY-----
 ";
 	$selector2='default';
-	$domain2="infosend.in";
+	$domain2="clientdomain.in";
 	array_push($mail->DKIM_Array, array('domain'=>$domain2,'selector'=>$selector2,'key'=>$key2));
 
 	$mail->AddAddress("EMAILADDRESS@gmail.com");                  // name is optional
