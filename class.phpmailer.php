@@ -404,7 +404,7 @@ class PHPMailer
     public $double_domain_dkim="";
 
 
-
+    public $DKIM_Array  =   array();
 
 
     /**
@@ -989,10 +989,9 @@ class PHPMailer
             if (!$this->AllowEmpty and empty($this->Body)) {
                 throw new phpmailerException($this->lang('empty_message'), self::STOP_CRITICAL);
             }
+            
 
-            $this->MIMEHeader = $this->createHeader();
-            $this->MIMEBody = $this->createBody();
-
+            
             // To capture the complete message when using mail(), create
             // an extra header list which createHeader() doesn't fold in
             if ($this->Mailer == 'mail') {
@@ -1006,31 +1005,21 @@ class PHPMailer
                     $this->encodeHeader($this->secureHeader(trim($this->Subject)))
                 );
             }
-
+            $this->MIMEHeader = $this->createHeader();
+            $this->MIMEBody   = $this->createBody();
+            $maxlen           = 75 - 7 - strlen($this->CharSet);
             // Sign with DKIM if enabled
-            if (!empty($this->DKIM_domain)
-                && !empty($this->DKIM_private)
-                && !empty($this->DKIM_selector)
-                && !empty($this->DKIM_domain)
-                ) {
-                $header_dkim = $this->DKIM_Add(
-                    $this->MIMEHeader . $this->mailHeader,
-                    $this->encodeHeader($this->secureHeader($this->Subject)),
-                    $this->MIMEBody
-                );
-                $this->MIMEHeader = rtrim($this->MIMEHeader, "\r\n ") . self::CRLF .
-                    str_replace("\r\n", "\n", $header_dkim) . self::CRLF;
-
-
-            }
-            if( (!empty($this->double_domain_dkim)) && (!empty($this->double_key_dkim)) && (!empty($this->double_selector_dkim)) ){
-                $header_dkim = $this->douleheader_dkim(
-                    $this->MIMEHeader . $this->mailHeader,
-                    $this->encodeHeader($this->secureHeader($this->Subject)),
-                    $this->MIMEBody,$this->double_domain_dkim,$this->double_key_dkim ,$this->double_selector_dkim
-                );
-                $this->MIMEHeader = rtrim($this->MIMEHeader, "\r\n ") . self::CRLF .
-                    str_replace("\r\n", "\n", $header_dkim) . self::CRLF;
+            if(!empty($this->DKIM_Array)){
+                foreach ($this->DKIM_Array as $key => $value) {
+                    if(isset($value['domain']) && isset($value['key']) && isset($value['selector'])){
+                        $header_dkim = $this->Add_DKIM(
+                            $this->MIMEHeader . $this->mailHeader,
+                            $this->encodeHeader($this->secureHeader($this->Subject)),
+                            $this->MIMEBody,$value['domain'],$value['key'],$value['selector']
+                        );
+                        $this->MIMEHeader = str_replace("\r\n", "\n", $header_dkim).$this->MIMEHeader;
+                    }
+                }
             }
             return true;
 
@@ -1567,7 +1556,6 @@ class PHPMailer
             }
             $message .= $buf . self::CRLF;
         }
-
         return $message;
     }
 
@@ -1645,7 +1633,6 @@ class PHPMailer
     public function createHeader()
     {
         $result = '';
-
         // Set the boundaries
         $uniq_id = md5(uniqid(time()));
         $this->boundary[1] = 'b1_' . $uniq_id;
@@ -1700,6 +1687,14 @@ class PHPMailer
             $result .= $this->headerLine('Subject', $this->encodeHeader($this->secureHeader($this->Subject)));
         }
 
+
+        
+
+
+
+
+
+
         if ($this->MessageID != '') {
             $this->lastMessageID = $this->MessageID;
         } else {
@@ -1739,6 +1734,8 @@ class PHPMailer
             $result .= $this->headerLine('MIME-Version', '1.0');
             $result .= $this->getMailMIME();
         }
+
+         
 
         return $result;
     }
@@ -2452,7 +2449,9 @@ class PHPMailer
     public function encodeQP($string, $line_max = 76)
     {
         if (function_exists('quoted_printable_encode')) { // Use native function if it's available (>= PHP5.3)
-            return $this->fixEOL(quoted_printable_encode($string));
+            //return $this->fixEOL(quoted_printable_encode($string));
+            $string = $this->fixEOL(quoted_printable_encode($string));
+            return str_replace( "    ", "=20", $string );
         }
         // Fall back to a pure PHP implementation
         $string = str_replace(
@@ -3238,16 +3237,15 @@ class PHPMailer
             }
             return '';
         }
-       // $privKeyStr = file_get_contents($this->DKIM_private);
         $privKeyStr=$this->DKIM_private;
-        //echo $privKeyStr;
         if ($this->DKIM_passphrase != '') {
             $privKey = openssl_pkey_get_private($privKeyStr, $this->DKIM_passphrase);
         } else {
             $privKey = $privKeyStr;
         }
         if (openssl_sign($signHeader, $signature, $privKey)) {
-            return base64_encode($signature);
+            return chunk_split(base64_encode($signature),76,"\r\n\t");
+            //return base64_encode($signature);
         }
         return '';
     }
@@ -3301,7 +3299,7 @@ class PHPMailer
      * @param string $body Body
      * @return string
      */
-    public function DKIM_Add($headers_line, $subject, $body)
+    public function DKIM_Add($headers_line, $subject, $body,$DK_Domain,$DK_Selector,$DK_Key)
     {
         $DKIMsignatureType = 'rsa-sha1'; // Signature & hash algorithms
         $DKIMcanonicalization = 'relaxed/simple'; // Canonicalization of header/body
@@ -3350,8 +3348,9 @@ class PHPMailer
             "\tz=$from\r\n" .
             "\t|$to\r\n" .
             "\t|$subject;\r\n" .
-            "\tbh=" . $DKIMb64 . ";\r\n" .
+            "\tbh=" . $DKIMb64 . ";\n" .
             "\tb=";
+        $dkimhdrs = wordwrap($dkimhdrs,76,"\r\n\t");
         $toSign = $this->DKIM_HeaderC(
             $from_header . "\r\n" . $to_header . "\r\n" . $subject_header . "\r\n" . $dkimhdrs
         );
@@ -3426,9 +3425,17 @@ class PHPMailer
             call_user_func_array($this->action_function, $params);
         }
     }
-    public function douleheader_dkim($headers_line, $subject, $body,$domain,$key,$selector){
 
-         //echo "bvfbakjvbkjsdbvkjdgs"; die();
+    /**
+     * Create the DKIM header and body in a new message header.
+     * @access public
+     * @param string $headers_line Header lines
+     * @param string $subject Subject
+     * @param string $body Body
+     * @return string
+     */
+    public function Add_DKIM($headers_line, $subject, $body,$domain,$key,$selector)
+    {
         $DKIMsignatureType = 'rsa-sha1'; // Signature & hash algorithms
         $DKIMcanonicalization = 'relaxed/simple'; // Canonicalization of header/body
         $DKIMquery = 'dns/txt'; // Query method
@@ -3478,15 +3485,23 @@ class PHPMailer
             "\t|$subject;\r\n" .
             "\tbh=" . $DKIMb64 . ";\r\n" .
             "\tb=";
+        $dkimhdrs = wordwrap($dkimhdrs,76,"\r\n\t");
         $toSign = $this->DKIM_HeaderC(
             $from_header . "\r\n" . $to_header . "\r\n" . $subject_header . "\r\n" . $dkimhdrs
         );
-        $signed = $this->double_DKIM_Sign($toSign,$key);
-        //echo $signed;
-        //die();
+        $signed = $this->Sign_DKIM($toSign,$key);
         return $dkimhdrs . $signed . "\r\n";
-     }
-    public function double_DKIM_Sign($signHeader,$key)
+    }
+    
+
+    /**
+     * Generate a DKIM signature.
+     * @access public
+     * @param string $signHeader
+     * @throws phpmailerException
+     * @return string
+     */
+    public function Sign_DKIM($signHeader,$key)
     {
         if (!defined('PKCS7_TEXT')) {
             if ($this->exceptions) {
@@ -3494,17 +3509,10 @@ class PHPMailer
             }
             return '';
         }
-        //$privKeyStr = file_get_contents($this->DKIM_private);
         $privKeyStr=$key;
-        
-        //echo $privKeyStr; 
-        /*if ($this->DKIM_passphrase != '') {
-            $privKey = openssl_pkey_get_private($privKeyStr, $this->DKIM_passphrase);
-        } else {
-            $privKey = $privKeyStr;
-        }*/
         if (openssl_sign($signHeader, $signature,$privKeyStr)) {
-            return base64_encode($signature);
+            return chunk_split(base64_encode($signature),76,"\r\n\t");
+            //return base64_encode($signature);
         }
         return '';
     }
