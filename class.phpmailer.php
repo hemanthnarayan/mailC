@@ -1206,7 +1206,11 @@ class PHPMailer
         if (!$this->smtpConnect()) {
             throw new phpmailerException($this->lang('smtp_connect_failed'), self::STOP_CRITICAL);
         }
-        $smtp_from = ($this->Sender == '') ? $this->From : $this->Sender;
+       if (!empty($this->Sender) and $this->validateAddress($this->Sender)) {
+            $smtp_from = $this->Sender;
+        } else {
+            $smtp_from = $this->From;
+        }
         if (!$this->smtp->mail($smtp_from)) {
             $this->setError($this->lang('from_failed') . $smtp_from . ' : ' . implode(',', $this->smtp->getError()));
             throw new phpmailerException($this->ErrorInfo, self::STOP_CRITICAL);
